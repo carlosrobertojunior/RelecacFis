@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -21,7 +21,16 @@ MAX_RESPONSE_BYTES = 16_384
 
 
 class AuthenticationError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, retry_after_seconds: int = 0):
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
+
+
+def _retry_seconds(value, default: int = 90) -> int:
+    try:
+        return max(1, min(3600, int(value)))
+    except (TypeError, ValueError, OverflowError):
+        return default
 
 
 @dataclass(frozen=True)
@@ -139,18 +148,47 @@ class AuthClient:
             raise AuthenticationError("Resposta de login inv\u00e1lida.")
         return result
 
-    def request_code(self, email: str) -> None:
+    def request_code(self, email: str) -> int:
         email = normalize_email(email)
         if not email:
             raise AuthenticationError("Informe um e-mail v\u00e1lido.")
         result = self._post({"action": "request", "email": email})
         if not result.get("ok"):
             error = result.get("error")
-            if error == "invalid_email":
-                raise AuthenticationError("Informe um e-mail v\u00e1lido.")
-            raise AuthenticationError(
-                "O servi\u00e7o de login n\u00e3o conseguiu enviar o c\u00f3digo."
-            )
+            if error == "rate_limited":
+                seconds = _retry_seconds(result.get("retryAfterSeconds"))
+                minutes, remainder = divmod(seconds, 60)
+                wait = f"{minutes:02d}:{remainder:02d}"
+                raise AuthenticationError(
+                    f"Limite de solicita\u00e7\u00f5es atingido. Aguarde {wait} "
+                    "para pedir outro c\u00f3digo. Um c\u00f3digo recebido "
+                    "h\u00e1 menos de 10 minutos ainda pode ser usado.",
+                    retry_after_seconds=seconds,
+                )
+            messages = {
+                "invalid_email": "Informe um e-mail v\u00e1lido.",
+                "mail_quota_exceeded": (
+                    "A conta de envio atingiu a cota di\u00e1ria do Google. "
+                    "O administrador precisa verificar a cota no Apps Script."
+                ),
+                "mail_send_failed": (
+                    "O Google n\u00e3o conseguiu enviar o e-mail. "
+                    "Tente novamente; se persistir, avise o administrador."
+                ),
+                "setup_required": (
+                    "O servi\u00e7o de login precisa ser configurado. "
+                    "O administrador deve executar setupAuth no Apps Script."
+                ),
+                "configuration_error": (
+                    "N\u00e3o foi poss\u00edvel consultar a lista de contas. "
+                    "O administrador deve conferir a aba Dados e as permiss\u00f5es."
+                ),
+                "service_busy": "O servi\u00e7o est\u00e1 ocupado. Tente novamente em instantes.",
+            }
+            raise AuthenticationError(messages.get(
+                error, "O servi\u00e7o de login n\u00e3o conseguiu enviar o c\u00f3digo."
+            ))
+        return _retry_seconds(result.get("retryAfterSeconds"))
 
     def verify_code(self, email: str, code: str) -> AuthSession:
         email = normalize_email(email)

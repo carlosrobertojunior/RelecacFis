@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -54,6 +54,46 @@ class LoginTests(unittest.TestCase):
             'action': 'request', 'email': 'user@example.com',
         })
         self.assertEqual(requests[1]['code'], '123456')
+
+    def test_rate_limit_includes_wait_time(self):
+        client = AuthClient('https://script.google.com/macros/s/test/exec')
+        with patch.object(auth_client, 'urlopen', return_value=FakeResponse({
+            'ok': False, 'error': 'rate_limited', 'retryAfterSeconds': 125,
+        })):
+            with self.assertRaises(AuthenticationError) as raised:
+                client.request_code('user@example.com')
+        self.assertEqual(raised.exception.retry_after_seconds, 125)
+        self.assertIn('02:05', str(raised.exception))
+
+    def test_send_failure_messages_are_actionable(self):
+        cases = {
+            'mail_quota_exceeded': 'cota',
+            'mail_send_failed': 'Tente novamente',
+            'setup_required': 'setupAuth',
+            'configuration_error': 'aba Dados',
+            'service_busy': 'ocupado',
+        }
+        client = AuthClient('https://script.google.com/macros/s/test/exec')
+        for error, expected in cases.items():
+            with self.subTest(error=error), patch.object(
+                auth_client, 'urlopen', return_value=FakeResponse({'ok': False, 'error': error})
+            ):
+                with self.assertRaisesRegex(AuthenticationError, expected):
+                    client.request_code('user@example.com')
+
+    def test_legacy_success_has_resend_cooldown(self):
+        client = AuthClient('https://script.google.com/macros/s/test/exec')
+        with patch.object(auth_client, 'urlopen', return_value=FakeResponse({'ok': True})):
+            self.assertEqual(client.request_code('user@example.com'), 90)
+
+    def test_malformed_retry_value_uses_safe_default(self):
+        client = AuthClient('https://script.google.com/macros/s/test/exec')
+        with patch.object(auth_client, 'urlopen', return_value=FakeResponse({
+            'ok': False, 'error': 'rate_limited', 'retryAfterSeconds': 'invalid',
+        })):
+            with self.assertRaises(AuthenticationError) as raised:
+                client.request_code('user@example.com')
+        self.assertEqual(raised.exception.retry_after_seconds, 90)
 
     def test_invalid_code_does_not_make_session(self):
         client = AuthClient('https://script.google.com/macros/s/test/exec')

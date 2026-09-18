@@ -1,6 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import math
 import queue
+import time
 import threading
 import tkinter as tk
 from tkinter import ttk
@@ -29,6 +31,7 @@ def show_login(client: AuthClient) -> AuthSession | None:
     requested_email = ""
     pending: queue.Queue = queue.Queue()
     busy = False
+    retry_at = 0.0
 
     shell = tk.Frame(root, bg="white", padx=38, pady=24,
                      highlightbackground="#d9e1ea", highlightthickness=1)
@@ -97,11 +100,24 @@ def show_login(client: AuthClient) -> AuthSession | None:
         font=("Segoe UI", 8),
     ).pack(pady=(0, 10))
 
+    def update_send_button() -> None:
+        remaining = max(0, math.ceil(retry_at - time.monotonic()))
+        caption = (f"REENVIAR EM {remaining // 60:02d}:{remaining % 60:02d}"
+                   if remaining else "ENVIAR C\u00d3DIGO")
+        send_button.config(text=caption,
+                           state="disabled" if busy or remaining else "normal")
+
+    def show_code_entry() -> None:
+        email_entry.config(state="disabled")
+        if not code_frame.winfo_manager():
+            code_frame.pack(fill="x")
+        code_entry.focus_set()
+
     def set_busy(value: bool) -> None:
         nonlocal busy
         busy = value
         state = "disabled" if value else "normal"
-        send_button.config(state=state)
+        update_send_button()
         enter_button.config(state=state)
         change_button.config(state=state)
 
@@ -123,6 +139,8 @@ def show_login(client: AuthClient) -> AuthSession | None:
 
     def send_code() -> None:
         nonlocal requested_email
+        if busy or time.monotonic() < retry_at:
+            return
         email = normalize_email(email_var.get())
         if not email:
             message_var.set("Informe um e-mail v\u00e1lido.")
@@ -138,7 +156,9 @@ def show_login(client: AuthClient) -> AuthSession | None:
         run_background("verified", lambda: client.verify_code(requested_email, code))
 
     def change_email() -> None:
-        nonlocal requested_email
+        nonlocal requested_email, retry_at
+        retry_at = 0.0
+        update_send_button()
         requested_email = ""
         code_var.set("")
         code_frame.pack_forget()
@@ -147,21 +167,23 @@ def show_login(client: AuthClient) -> AuthSession | None:
         message_var.set("")
 
     def poll_queue() -> None:
-        nonlocal result
+        nonlocal result, retry_at
         try:
             while True:
                 kind, value, error = pending.get_nowait()
                 set_busy(False)
                 if error is not None:
+                    if isinstance(error, AuthenticationError) and error.retry_after_seconds:
+                        retry_at = time.monotonic() + error.retry_after_seconds
+                        show_code_entry()
                     message_var.set(
                         str(error) if isinstance(error, AuthenticationError)
                         else "Falha inesperada no servi\u00e7o de login."
                     )
                     message_label.config(fg=RED)
                 elif kind == "sent":
-                    email_entry.config(state="disabled")
-                    if not code_frame.winfo_manager():
-                        code_frame.pack(fill="x")
+                    retry_at = time.monotonic() + (value or 90)
+                    show_code_entry()
                     message_var.set(
                         "Se o e-mail estiver autorizado, o c\u00f3digo chegar\u00e1 "
                         "em alguns instantes. Verifique tamb\u00e9m o spam."
@@ -175,6 +197,7 @@ def show_login(client: AuthClient) -> AuthSession | None:
         except queue.Empty:
             pass
         if root.winfo_exists():
+            update_send_button()
             root.after(100, poll_queue)
 
     send_button.config(command=send_code)

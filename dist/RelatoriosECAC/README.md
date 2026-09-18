@@ -17,13 +17,32 @@ O link do editor do projeto (`script.google.com/.../home/projects/.../edit`) nao
 
 Ao alterar o Apps Script, abra **Implantar > Gerenciar implantacoes**, edite a implantacao ativa, escolha **Nova versao** e publique novamente. A URL `/exec` existente pode continuar a mesma. Codigos expiram em 10 minutos; sessoes duram 8 horas. Remover o e-mail da planilha impede novas validacoes de sessao. O app guarda o resultado da ultima consulta separado por e-mail na maquina.
 
-A nova URL `/exec` informada em 18/09/2026 respondeu com HTTP 200 e `"emailFormat":"text-only-v1"`, confirmando a publicacao do codigo que envia texto simples. O teste anterior, feito na implantacao antiga, ainda enviava `multipart/related` com uma parte `image/png`. Um unico token de teste enviado pela nova URL em 18/09/2026 chegou como `text/plain`, sem partes de imagem nem anexos; o corpo continha um codigo de seis digitos e a validade de 10 minutos. O codigo nao foi exibido nem consumido na verificacao.
+## Diagnostico do envio e novo modelo
 
-## E-mail do codigo em texto
+Em 18/09/2026, a URL configurada respondeu com `emailFormat: text-only-v1`. Foram encontrados tres envios para a conta de teste na mesma hora (14:30, 14:38 e 14:43, horario de Fortaleza). A tentativa autorizada das 14:57 retornou a mensagem generica de sucesso, mas nao gerou novo e-mail. Isso corresponde ao bloqueio de tres envios por hora implementado na versao anterior; o contador interno nao estava acessivel para confirmar seu valor. As mensagens anteriores estavam na Lixeira do Gmail.
 
-O [Code.gs](apps_script/Code.gs) envia o codigo de seis digitos, a validade de 10 minutos e o aviso de seguranca em texto simples. O `MailApp.sendEmail` nao recebe `htmlBody`, `inlineImages` nem `attachments`; por isso a mensagem nao inclui a logo ou qualquer arquivo. A logo continua no aplicativo, mas nao no e-mail de acesso.
+O [Code.gs](apps_script/Code.gs) corrigido retorna `rate_limited` e `retryAfterSeconds` quando ha bloqueio, em vez de simular sucesso. O aplicativo mostra o tempo de espera e mantem a entrada de um codigo ja recebido disponivel. O limite continua sendo tres envios por hora do relogio e um intervalo de 90 segundos; os codigos duram 10 minutos. Uma falha de envio nao consome a cota por e-mail nem invalida um codigo anterior ainda valido.
 
-Apos publicar, abra a URL `/exec` no navegador. A resposta deve conter `"emailFormat":"text-only-v1"`. Se esse campo nao aparecer, a implantacao ainda esta usando uma versao anterior do script.
+O modelo HTML tem cabecalho Carlos Junior, codigo azul destacado e rodape, como na [previa](preview/email_token.png). O codigo da previa e ficticio. O envio inclui texto simples alternativo, sem `inlineImages`, `attachments`, imagens externas ou arquivos. A logo continua nas telas do aplicativo.
+
+### Ativar a correcao
+
+1. Substitua o conteudo do editor do Apps Script por [apps_script/Code.gs](apps_script/Code.gs) e salve.
+2. Execute `setupAuth` se precisar autorizar a planilha ou o envio.
+3. Abra **Implantar > Gerenciar implantacoes > Editar > Nova versao > Implantar**. Atualize a implantacao da URL ja configurada para preserva-la.
+4. Abra `/exec`: a resposta deve mostrar `"emailFormat":"html-code-v2"` e `"version":"auth-v2"`. Se mostrar `text-only-v1`, a nova versao ainda nao esta publicada.
+5. Use o executavel atualizado em `dist/validacao_token/RelatoriosECAC/RelatoriosECAC.exe`, com `_internal` e `auth_config.json` na mesma pasta.
+
+A nova implantacao informada em 18/09/2026 respondeu com HTTP 200, `emailFormat: html-code-v2` e `version: auth-v2`. Sua URL foi configurada na raiz e nos tres pacotes distribuidos. Os testes locais validaram limites, falhas e recuperacao do codigo anterior. A entrega real de um e-mail pelo novo modelo ainda nao foi confirmada; esta verificacao da URL nao solicitou token.
+
+### Se continuar sem receber
+
+Execute `diagnoseAuth` no editor como proprietario do script. Essa funcao nao envia e-mail e nao mostra tokens; registra a cota de envio restante, o cadastro do e-mail da conta executora, o numero de envios nesta hora e o tempo ate a liberacao. Nao existe endpoint publico de diagnostico.
+
+- `rate_limited`: aguarde o tempo exibido. Apagar e-mails recebidos nao zera o contador.
+- `mail_quota_exceeded`: a conta atingiu a cota diaria do Google; o administrador pode consultar a [documentacao de cotas](https://developers.google.com/apps-script/guides/services/quotas).
+- `mail_send_failed`: o Google recusou ou falhou ao enviar; confira as execucoes do Apps Script e tente novamente.
+- `configuration_error` ou `setup_required`: confira Dados!A1 = EMAIL, os enderecos na coluna A, as permissoes e execute `setupAuth`.
 
 ## Gerar executavel
 

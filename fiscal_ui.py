@@ -10,7 +10,7 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from auth_client import AuthSession
-from branding import set_window_icon
+from branding import asset_path, set_window_icon
 from fiscal_flow import read_status, validate_pdf
 
 
@@ -72,8 +72,15 @@ def choose_options(list_certificates, normalize_thumbprint,
     header = tk.Frame(root, bg=NAVY, height=88)
     header.pack(fill="x")
     header.pack_propagate(False)
-    tk.Label(header, text="▣  CONSULTA FISCAL e-CAC", bg=NAVY, fg="white",
-             font=("Segoe UI", 20, "bold")).pack(side="left", padx=30)
+    try:
+        logo = tk.PhotoImage(file=str(asset_path("logo.png"))).subsample(6, 6)
+        root.header_logo_image = logo
+        tk.Label(header, image=logo, bg="white", padx=3, pady=3).pack(
+            side="left", padx=(24, 0))
+    except tk.TclError:
+        pass
+    tk.Label(header, text="CONSULTA FISCAL e-CAC", bg=NAVY, fg="white",
+             font=("Segoe UI", 20, "bold")).pack(side="left", padx=(14, 0))
     tk.Button(header, text="Sair", command=close_app, bg=NAVY,
               fg="white", activebackground=BLUE, activeforeground="white",
               relief="flat", font=("Segoe UI", 10, "bold"),
