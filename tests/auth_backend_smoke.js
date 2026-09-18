@@ -5,7 +5,6 @@ const vm = require('node:vm');
 
 const values = ['user@example.com'];
 const sent = [];
-const logoBlob = {name: 'RelatoriosECAC-logo.png'};
 const cache = new Map();
 const properties = new Map();
 const now = () => Date.now();
@@ -26,15 +25,6 @@ const context = {
         };
       },
     }),
-  },
-  DriveApp: {
-    getFileById: id => {
-      assert.equal(id, '1m4AI8LCZmgkzw8rSmn4_CV31rloHmOCs');
-      return {
-        getMimeType: () => 'image/png',
-        getBlob: () => logoBlob,
-      };
-    },
   },
   PropertiesService: {
     getScriptProperties: () => ({
@@ -89,6 +79,7 @@ vm.createContext(context);
 vm.runInContext(fs.readFileSync('apps_script/Code.gs', 'utf8'), context);
 context.setupAuth();
 assert.ok(properties.get('ECAC_AUTH_SECRET').length >= 64);
+assert.equal(JSON.parse(context.doGet().text).emailFormat, 'text-only-v1');
 
 const post = payload => JSON.parse(context.doPost({
   postData: {contents: JSON.stringify(payload)},
@@ -98,12 +89,13 @@ assert.equal(sent.length, 0);
 assert.equal(post({action: 'request', email: ' USER@example.com '}).ok, true);
 assert.equal(sent.length, 1);
 assert.equal(sent[0].to, 'user@example.com');
-assert.equal(sent[0].inlineImages.carlosLogo, logoBlob);
-assert.match(sent[0].htmlBody, /src="cid:carlosLogo"/);
-assert.match(sent[0].htmlBody, /Este c\u00f3digo/);
-assert.match(sent[0].htmlBody, /10 minutos/);
-assert.match(sent[0].htmlBody, /CARLOS ROBERTO FELICIO JUNIOR/);
-assert.match(sent[0].htmlBody, /\d{6}/);
+assert.equal(sent[0].htmlBody, undefined);
+assert.equal(sent[0].inlineImages, undefined);
+assert.equal(sent[0].attachments, undefined);
+assert.match(sent[0].body, /Seu c\u00f3digo de acesso/);
+assert.match(sent[0].body, /10 minutos/);
+assert.match(sent[0].body, /\b\d{6}\b/);
+assert.doesNotMatch(sent[0].body, /<img|cid:|data:image|https?:\/\//);
 assert.equal(post({action: 'request', email: 'user@example.com'}).ok, true);
 assert.equal(sent.length, 1);
 const code = sent[0].body.match(/\b\d{6}\b/)[0];

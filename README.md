@@ -6,7 +6,7 @@ Aplicativo Windows para selecionar um certificado instalado, acessar o e-CAC, le
 
 1. Abra a [planilha de contas](https://docs.google.com/spreadsheets/d/1Mgu-DhBg2xPIErCowhh2ftZ9ttYgNY9fEckkgKdnVVw/edit?gid=0#gid=0) na conta Google que enviara os e-mails. Na aba `Dados`, mantenha `EMAIL` em A1 e coloque um endereco autorizado por linha na coluna A.
 2. Abra **Extensoes > Apps Script**. Substitua o conteudo de `Code.gs` pelo arquivo [apps_script/Code.gs](apps_script/Code.gs) deste projeto e salve.
-3. No editor, selecione `setupAuth`, clique em **Executar** e autorize o acesso a planilha, ao arquivo privado da logo no Drive e ao envio de e-mails. Essa etapa cria o segredo de assinatura nas propriedades privadas do script e verifica a logo.
+3. No editor, selecione `setupAuth`, clique em **Executar** e autorize o acesso a planilha e ao envio de e-mails. Essa etapa cria o segredo de assinatura nas propriedades privadas do script.
 O envio usa `MailApp` com a autorizacao da conta Google no Apps Script. Nenhuma senha de app e necessaria ou armazenada no projeto.
 
 4. Clique em **Implantar > Nova implantacao > Aplicativo da Web**. Escolha **Executar como: eu** (a conta proprietaria) e **Quem tem acesso: qualquer pessoa**. Copie a URL terminada em `/exec`. A verificacao dos e-mails e feita apenas pelo script; a planilha nao precisa ser publica.
@@ -17,13 +17,13 @@ O link do editor do projeto (`script.google.com/.../home/projects/.../edit`) nao
 
 Ao alterar o Apps Script, abra **Implantar > Gerenciar implantacoes**, edite a implantacao ativa, escolha **Nova versao** e publique novamente. A URL `/exec` existente pode continuar a mesma. Codigos expiram em 10 minutos; sessoes duram 8 horas. Remover o e-mail da planilha impede novas validacoes de sessao. O app guarda o resultado da ultima consulta separado por e-mail na maquina.
 
-A URL `/exec` atual foi configurada e responde sem login Google. Em 18/09/2026, um codigo real foi solicitado para uma conta autorizada e a mensagem chegou a caixa postal: o e-mail continha HTML, validade de 10 minutos, codigo de seis digitos e logo PNG incorporada por `cid:carlosLogo`. O codigo nao foi exibido nem consumido na verificacao; o login completo ainda depende de digitar o codigo no aplicativo.
+A nova URL `/exec` informada em 18/09/2026 respondeu com HTTP 200 e `"emailFormat":"text-only-v1"`, confirmando a publicacao do codigo que envia texto simples. O teste anterior, feito na implantacao antiga, ainda enviava `multipart/related` com uma parte `image/png`. Um unico token de teste enviado pela nova URL em 18/09/2026 chegou como `text/plain`, sem partes de imagem nem anexos; o corpo continha um codigo de seis digitos e a validade de 10 minutos. O codigo nao foi exibido nem consumido na verificacao.
 
-## E-mail do codigo com a logo
+## E-mail do codigo em texto
 
-O [novo Code.gs](apps_script/Code.gs) envia uma mensagem HTML no formato da [previa](preview/email_token.png): logo centralizada, codigo destacado, validade de 10 minutos e aviso para nao compartilhar. A previa usa o codigo ficticio `123456`. O texto simples acompanha o HTML para clientes de e-mail que nao o exibem.
+O [Code.gs](apps_script/Code.gs) envia o codigo de seis digitos, a validade de 10 minutos e o aviso de seguranca em texto simples. O `MailApp.sendEmail` nao recebe `htmlBody`, `inlineImages` nem `attachments`; por isso a mensagem nao inclui a logo ou qualquer arquivo. A logo continua no aplicativo, mas nao no e-mail de acesso.
 
-A [logo](https://drive.google.com/file/d/1m4AI8LCZmgkzw8rSmn4_CV31rloHmOCs/view?usp=drivesdk) foi guardada no Google Drive como arquivo privado. O script le o arquivo pelo ID e o incorpora ao e-mail com `inlineImages`; nao precisa tornar a imagem publica. A conta que executa o Apps Script precisa ter acesso de leitura a esse arquivo. Depois de colar o novo `Code.gs`, execute `setupAuth` novamente e autorize o acesso ao Drive antes de atualizar a implantacao.
+Apos publicar, abra a URL `/exec` no navegador. A resposta deve conter `"emailFormat":"text-only-v1"`. Se esse campo nao aparecer, a implantacao ainda esta usando uma versao anterior do script.
 
 ## Gerar executavel
 
