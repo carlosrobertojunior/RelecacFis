@@ -5,6 +5,7 @@
 const AUTH = Object.freeze({
   spreadsheetId: '1Mgu-DhBg2xPIErCowhh2ftZ9ttYgNY9fEckkgKdnVVw',
   sheetName: 'Dados',
+  logoDriveFileId: '1m4AI8LCZmgkzw8rSmn4_CV31rloHmOCs',
   codeSeconds: 600,
   cooldownSeconds: 90,
   maxCodesPerHour: 3,
@@ -31,6 +32,11 @@ function setupAuth() {
        Utilities.getUuid(), Utilities.getUuid()].join('')
     );
   }
+  const logo = DriveApp.getFileById(AUTH.logoDriveFileId);
+  if (logo.getMimeType() !== 'image/png') {
+    throw new Error('A logo do e-mail precisa ser um arquivo PNG.');
+  }
+  logo.getBlob();
   MailApp.getRemainingDailyQuota();
 }
 
@@ -126,6 +132,53 @@ function code_() {
   return String(number % 1000000).padStart(6, '0');
 }
 
+function accessEmailHtml_(code) {
+  return [
+    '<!doctype html><html lang="pt-BR"><head><meta charset="UTF-8"></head>',
+    '<body style="margin:0;padding:0;background:#f4f7fb;',
+    'font-family:Arial,Helvetica,sans-serif;color:#263548;">',
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0"',
+    ' width="100%" style="background:#f4f7fb;"><tr><td align="center"',
+    ' style="padding:24px 12px;">',
+    '<table role="presentation" cellpadding="0" cellspacing="0" border="0"',
+    ' width="100%" style="max-width:680px;background:#ffffff;',
+    'border:1px solid #e3e9f1;">',
+    '<tr><td align="center" style="padding:28px 24px 6px;">',
+    '<img src="cid:carlosLogo" alt="Carlos Junior - Tecnologia e Desenvolvimento',
+    ' de Software" width="180" style="display:block;width:180px;',
+    'max-width:100%;height:auto;border:0;"></td></tr>',
+    '<tr><td align="center" style="padding:8px 24px 25px;',
+    'font-size:16px;color:#43546b;">Portal de Consulta Fiscal e-CAC</td></tr>',
+    '<tr><td style="padding:0 28px 12px;font-size:18px;',
+    'font-weight:700;color:#193a61;">Seu c\u00f3digo de acesso</td></tr>',
+    '<tr><td style="padding:0 28px 8px;font-size:15px;line-height:1.6;">',
+    'Voc\u00ea solicitou acesso ao sistema de Consulta Fiscal e-CAC.',
+    ' Use o c\u00f3digo abaixo para entrar.</td></tr>',
+    '<tr><td style="padding:0 28px 24px;font-size:15px;',
+    'line-height:1.6;font-weight:700;">Este c\u00f3digo',
+    ' \u00e9 v\u00e1lido por 10 minutos.</td></tr>',
+    '<tr><td align="center" style="padding:0 24px 30px;">',
+    '<table role="presentation" cellpadding="0" cellspacing="0"',
+    ' border="0" style="background:#f6f9ff;border:1px dashed #1769e0;',
+    'border-radius:8px;"><tr><td align="center"',
+    ' style="padding:17px 26px;color:#1769e0;font-size:34px;',
+    'font-weight:700;letter-spacing:7px;white-space:nowrap;">',
+    code,
+    '</td></tr></table></td></tr>',
+    '<tr><td style="padding:0 28px;"><div style="border-top:',
+    '1px solid #dfe5ed;"></div></td></tr>',
+    '<tr><td align="center" style="padding:22px 28px 10px;',
+    'font-size:13px;line-height:1.6;color:#637186;">',
+    'Se voc\u00ea n\u00e3o solicitou este c\u00f3digo, ignore este e-mail.',
+    ' N\u00e3o compartilhe o c\u00f3digo com ningu\u00e9m.</td></tr>',
+    '<tr><td align="center" style="padding:0 28px 26px;',
+    'font-size:11px;color:#8490a0;">',
+    '\u00a9 2026 CARLOS ROBERTO FELICIO JUNIOR.',
+    ' Todos os direitos reservados.</td></tr>',
+    '</table></td></tr></table></body></html>',
+  ].join('');
+}
+
 function requestCode_(input) {
   const email = normalizeEmail_(input);
   if (!email) return {ok: false, error: 'invalid_email'};
@@ -160,13 +213,17 @@ function requestCode_(input) {
     cache.put('cooldown:' + id, '1', AUTH.cooldownSeconds);
     cache.put(hourKey, String(count + 1), 3600);
     try {
-      MailApp.sendEmail(
-        storedEmail,
-        'C\u00f3digo de acesso - Consulta Fiscal e-CAC',
-        'Seu c\u00f3digo de acesso \u00e9 ' + code +
-          '. Ele expira em 10 minutos. Se voc\u00ea n\u00e3o solicitou, ignore esta mensagem.',
-        {name: 'Carlos Junior - Consulta Fiscal'}
-      );
+      const logo = DriveApp.getFileById(AUTH.logoDriveFileId).getBlob();
+      MailApp.sendEmail({
+        to: storedEmail,
+        subject: 'Seu c\u00f3digo de acesso - Consulta Fiscal e-CAC',
+        body: 'Seu c\u00f3digo de acesso \u00e0 Consulta Fiscal e-CAC \u00e9 ' +
+          code + '. Ele expira em 10 minutos. Se voc\u00ea n\u00e3o solicitou, ' +
+          'ignore esta mensagem e n\u00e3o compartilhe o c\u00f3digo.',
+        htmlBody: accessEmailHtml_(code),
+        inlineImages: {carlosLogo: logo},
+        name: 'Carlos Junior - Consulta Fiscal',
+      });
     } catch (_error) {
       cache.remove('otp:' + id);
       cache.remove('cooldown:' + id);
