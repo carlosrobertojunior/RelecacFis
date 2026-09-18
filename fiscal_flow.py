@@ -1,5 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import hashlib
 import json
 import os
 from datetime import datetime
@@ -12,43 +13,43 @@ FISCAL_PAGE_SCRIPT = r"""
 (() => {
     if (window.__relatoriosEcacFiscalObserver) return;
 
-    const normalize = value => (value || "")
+    const normalize = value => String(value || "")
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .replace(/\s+/g, " ")
         .trim()
         .toLowerCase();
 
+    const send = data => {
+        if (window.chrome?.webview) {
+            window.chrome.webview.postMessage(JSON.stringify(data));
+        }
+    };
     const linesFromPage = () => (document.body?.innerText || "")
-        .split(/\r?\n/)
-        .map(line => line.trim())
-        .filter(Boolean);
-
+        .split(/\r?\n/).map(line => line.trim()).filter(Boolean);
     const valueAfter = (lines, label) => {
         const index = lines.findIndex(line => normalize(line).startsWith(label));
         return index >= 0 ? (lines[index + 1] || "") : "";
     };
-
     const readAnalysis = () => {
         const lines = linesFromPage();
         const resultIndex = lines.findIndex(
-            line => normalize(line) === "resultado da analise"
+            line => normalize(line).includes("resultado da analise")
         );
         if (resultIndex < 0) return null;
-
-        const analysisLines = lines.slice(resultIndex + 1, resultIndex + 20);
-        const result = analysisLines.find(line => {
+        const analysisLines = lines.slice(resultIndex + 1, resultIndex + 24);
+        const resultLine = analysisLines.find(line => {
             const text = normalize(line);
             return text === "com pendencia" || text === "sem pendencia";
         });
-        if (!result) return null;
-
+        if (!resultLine) return null;
+        const result = normalize(resultLine) === "com pendencia"
+            ? "Com pend\u00eancia" : "Sem pend\u00eancia";
         const dataIndex = lines.findIndex(
-            line => normalize(line) === "dados cadastrais"
+            line => normalize(line).includes("dados cadastrais")
         );
         const dataLines = dataIndex < 0 ? [] : lines.slice(
-            dataIndex + 1,
-            resultIndex > dataIndex ? resultIndex : dataIndex + 20
+            dataIndex + 1, resultIndex > dataIndex ? resultIndex : dataIndex + 20
         );
         const analysisTime = analysisLines.find(
             line => normalize(line).startsWith("analise realizada")
@@ -58,7 +59,6 @@ FISCAL_PAGE_SCRIPT = r"""
             return text.startsWith("existe pendencia") ||
                 text.startsWith("nao existe pendencia");
         }) || "";
-
         return {
             kind: "fiscal_analysis",
             result,
@@ -70,14 +70,25 @@ FISCAL_PAGE_SCRIPT = r"""
             registration_status: valueAfter(dataLines, "situacao cadastral")
         };
     };
-
-    const send = data => {
-        if (window.chrome?.webview) {
-            window.chrome.webview.postMessage(JSON.stringify(data));
+    const findDownloadButton = () => {
+        const controls = document.querySelectorAll(
+            'button, a, input[type="button"], input[type="submit"], [role="button"]'
+        );
+        for (const control of controls) {
+            const labels = [
+                control.innerText, control.textContent, control.value,
+                control.getAttribute("aria-label"), control.getAttribute("title")
+            ];
+            if (labels.some(label => normalize(label).includes("baixar relatorio"))) {
+                return control;
+            }
         }
+        return null;
     };
 
     let lastAnalysis = "";
+    let lastProbe = "";
+    let clicked = false;
     const scan = () => {
         const analysis = readAnalysis();
         if (analysis) {
@@ -87,26 +98,28 @@ FISCAL_PAGE_SCRIPT = r"""
                 send(analysis);
             }
         }
-
-        if (!analysis) return;
-        if (sessionStorage.getItem("relatoriosEcacFiscalDownloaded")) return;
-        const controls = document.querySelectorAll(
-            'button, a, input[type="button"], input[type="submit"], [role="button"]'
-        );
-        for (const control of controls) {
-            const label = normalize(
-                control.innerText || control.textContent ||
-                control.value || control.getAttribute("aria-label")
-            );
-            if (label === "baixar relatorio" && !control.disabled) {
-                sessionStorage.setItem("relatoriosEcacFiscalDownloaded", "1");
-                send({kind: "fiscal_download_requested"});
-                control.click();
-                return;
-            }
+        const button = findDownloadButton();
+        const probe = {
+            kind: "fiscal_probe",
+            path: location.pathname,
+            analysis_found: Boolean(analysis),
+            button_found: Boolean(button),
+            click_attempted: clicked
+        };
+        const probeKey = JSON.stringify(probe);
+        if (probeKey !== lastProbe) {
+            lastProbe = probeKey;
+            send(probe);
+        }
+        if (!button || button.disabled || clicked) return;
+        clicked = true;
+        send({kind: "fiscal_download_requested", path: location.pathname});
+        try {
+            button.click();
+        } catch (error) {
+            send({kind: "fiscal_click_error", error: String(error).slice(0, 200)});
         }
     };
-
     const observer = new MutationObserver(scan);
     window.__relatoriosEcacFiscalObserver = observer;
     observer.observe(document.documentElement, {
@@ -121,7 +134,12 @@ def status_file() -> Path:
     override = os.environ.get("RELATORIOS_ECAC_STATUS_PATH")
     if override:
         return Path(override)
-    base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    base = Path(local_app_data) if local_app_data else Path.home() / "AppData" / "Local"
+    account = os.environ.get("RELATORIOS_ECAC_ACCOUNT", "").strip().lower()
+    if account:
+        digest = hashlib.sha256(account.encode("utf-8")).hexdigest()[:20]
+        return base / "RelatoriosECAC" / f"ultimo_fiscal-{digest}.json"
     return base / "RelatoriosECAC" / "ultimo_fiscal.json"
 
 
@@ -133,7 +151,7 @@ def read_status() -> dict:
     return data if isinstance(data, dict) else {}
 
 
-def update_status(**changes: str) -> dict:
+def update_status(**changes) -> dict:
     data = read_status()
     data.update(changes)
     path = status_file()
@@ -150,15 +168,11 @@ def analysis_from_message(message: object) -> dict | None:
     if not isinstance(message, dict) or message.get("kind") != "fiscal_analysis":
         return None
     result = message.get("result")
-    if result not in ("Com pendência", "Sem pendência"):
+    if result not in ("Com pend\u00eancia", "Sem pend\u00eancia"):
         return None
-
     fields = (
-        "portal_analysis",
-        "summary",
-        "taxpayer_name",
-        "taxpayer_id",
-        "registration_status",
+        "portal_analysis", "summary", "taxpayer_name",
+        "taxpayer_id", "registration_status",
     )
     analysis = {key: str(message.get(key) or "")[:300] for key in fields}
     analysis["result"] = result
@@ -175,7 +189,6 @@ def validate_pdf(path: Path) -> bool:
         if path.stat().st_size < 5:
             return False
         with path.open("rb") as stream:
-            return b"%PDF-" in stream.read(1024)
+            return stream.read(5) == b"%PDF-"
     except OSError:
         return False
-

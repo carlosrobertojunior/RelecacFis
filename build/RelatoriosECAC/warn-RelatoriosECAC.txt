@@ -47,7 +47,7 @@ missing module named trove_classifiers - imported by setuptools.config._validate
 missing module named _manylinux - imported by setuptools._vendor.packaging._manylinux (delayed, optional)
 missing module named pyimod02_importers - imported by C:\Users\carlos.junior\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\PyInstaller\hooks\rthooks\pyi_rth_pkgutil.py (delayed)
 missing module named collections.MutableMapping - imported by collections (conditional), bottle (conditional)
-missing module named 'System.Windows' - imported by webview.platforms.edgechromium (top-level), webview.platforms.mshtml (top-level), C:\Projetos\ecac-fis-cont-jurid\app.py (delayed, conditional)
+missing module named 'System.Windows' - imported by webview.platforms.edgechromium (top-level), webview.platforms.mshtml (top-level), C:\Projetos\ecac-fis-cont-jurid\app.py (delayed, conditional, optional)
 missing module named 'cryptography.x509' - imported by webview (delayed, optional)
 missing module named 'cryptography.hazmat' - imported by webview (delayed, optional)
 missing module named cryptography - imported by webview (delayed, optional)
